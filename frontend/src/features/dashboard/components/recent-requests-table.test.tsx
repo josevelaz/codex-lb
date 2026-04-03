@@ -1,11 +1,23 @@
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RecentRequestsTable } from "@/features/dashboard/components/recent-requests-table";
 import { renderWithProviders } from "@/test/utils";
 
 const ISO = "2026-01-01T12:00:00+00:00";
+
+const { toastSuccess, toastError } = vi.hoisted(() => ({
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: toastSuccess,
+    error: toastError,
+  },
+}));
 
 const PAGINATION_PROPS = {
   total: 1,
@@ -17,6 +29,11 @@ const PAGINATION_PROPS = {
 };
 
 describe("RecentRequestsTable", () => {
+  beforeEach(() => {
+    toastSuccess.mockReset();
+    toastError.mockReset();
+  });
+
   it("shows Fast only for effective priority rows and opens the drawer on row click", async () => {
     const user = userEvent.setup();
 
@@ -89,7 +106,11 @@ describe("RecentRequestsTable", () => {
     expect(requestedPriorityIcons).toHaveLength(2);
     await user.hover(requestedPriorityIcons[1]);
     expect(
-      (await screen.findAllByText("Priority requested for this request. If granted, pricing and quota usage increase.")).length,
+      (
+        await screen.findAllByText(
+          "Priority requested for this request. If granted, pricing and quota usage increase.",
+        )
+      ).length,
     ).toBeGreaterThan(0);
 
     await user.click(screen.getByText("Key Alpha"));
@@ -98,9 +119,15 @@ describe("RecentRequestsTable", () => {
     expect(screen.getAllByText("Fast").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("supports error expansion without opening the drawer", async () => {
+  it("supports error expansion without opening the drawer and copy actions", async () => {
     const user = userEvent.setup();
     const longError = "Rate limit reached while processing this request ".repeat(3);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     renderWithProviders(
       <RecentRequestsTable
@@ -111,7 +138,7 @@ describe("RecentRequestsTable", () => {
             requestedAt: ISO,
             accountId: null,
             apiKeyName: null,
-            requestId: "req_1",
+            requestId: "req-1",
             model: "gpt-5.1",
             serviceTier: "default",
             requestedServiceTier: null,
@@ -130,12 +157,32 @@ describe("RecentRequestsTable", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "View" }));
+    expect(screen.getByText("Rate limit")).toBeInTheDocument();
+    expect(screen.getByText("rate_limit_exceeded")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View Details" }));
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeInTheDocument();
-    expect(screen.getByText("Error Detail")).toBeInTheDocument();
+    expect(screen.getByText("Request Details")).toBeInTheDocument();
+    expect(screen.getByText("req-1")).toBeInTheDocument();
+    expect(screen.getAllByText("rate_limit_exceeded")[0]).toBeInTheDocument();
     expect(dialog.textContent).toContain("Rate limit reached while processing this request");
     expect(screen.queryByText("Request visibility")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Request ID" }));
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith("req-1");
+    expect(toastSuccess).toHaveBeenCalledWith("Copied to clipboard");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy Error" }));
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith(longError);
   });
 
   it("renders empty state", () => {
@@ -173,5 +220,41 @@ describe("RecentRequestsTable", () => {
     );
 
     expect(screen.getAllByText("--")[0]).toBeInTheDocument();
+  });
+
+  it("shows details action for error-code-only rows", async () => {
+    renderWithProviders(
+      <RecentRequestsTable
+        {...PAGINATION_PROPS}
+        accounts={[]}
+        requests={[
+          {
+            requestedAt: ISO,
+            accountId: "acc-legacy",
+            apiKeyName: null,
+            requestId: "req-error-code",
+            model: "gpt-5.1",
+            serviceTier: null,
+            requestedServiceTier: null,
+            actualServiceTier: null,
+            transport: "http",
+            status: "error",
+            errorCode: "upstream_error",
+            errorMessage: null,
+            tokens: 1,
+            cachedInputTokens: null,
+            reasoningEffort: null,
+            costUsd: 0,
+            latencyMs: 1,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("upstream_error")[0]).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("upstream_error");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Full Error");
   });
 });
