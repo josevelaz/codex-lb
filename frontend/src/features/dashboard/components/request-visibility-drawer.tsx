@@ -202,16 +202,6 @@ export function RequestVisibilityDrawer({ request, open, onOpenChange }: Request
 
             {visibilityQuery.data && !visibilityQuery.data.captured ? (
               <div className="space-y-4">
-                <EmptyState
-                  icon={EyeOff}
-                  title="Request visibility unavailable"
-                  description={
-                    canShowEnableCta
-                      ? "This row was not captured. You can enable request visibility for future requests below."
-                      : "This request was not captured. Capture may have been disabled, unsupported, or unavailable for this row."
-                  }
-                />
-
                 {canShowEnableCta ? (
                   <section className="rounded-xl border p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -267,6 +257,16 @@ export function RequestVisibilityDrawer({ request, open, onOpenChange }: Request
                     </div>
                   </section>
                 ) : null}
+
+                <EmptyState
+                  icon={EyeOff}
+                  title="Request visibility unavailable"
+                  description={
+                    canShowEnableCta
+                      ? "This row was not captured. You can enable request visibility for future requests above."
+                      : "This request was not captured. Capture may have been disabled, unsupported, or unavailable for this row."
+                  }
+                />
               </div>
             ) : null}
 
